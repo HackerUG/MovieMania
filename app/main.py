@@ -7,7 +7,7 @@ from streamlit.delta_generator import DeltaGenerator
 from model.recommender import load_processed, compute_similarity, recommend
 from utilities.utils import fetch_image
 
-# ---------- PAGE CONFIG ----------
+
 st.set_page_config(
     page_title="Movie Mania 🎥",
     page_icon="🎬",
@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ---------- CUSTOM CSS ----------
+
 st.markdown("""
     <style>
     /* Background Gradient */
@@ -70,25 +70,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ---------- LOAD DATA ----------
+
 df = load_processed()
 similarity = compute_similarity(df)
 
-# ---------- UI ----------
+
 st.markdown("<h1 class='main-title'>🎬 Movie Mania</h1>", unsafe_allow_html=True)
 
-search = st.text_input("🔍 Search for a movie you like:")
+search = st.text_input("Search for a movie you like:")
 
 filtered = [title for title in df["title"] if search.replace(" ", "").lower() in title.replace(" ", "").lower()]
 
 if search:
-    movie_name = st.selectbox("🎯 Pick from results:", filtered if filtered else ["No match"])
+    movie_name = st.selectbox("Pick from results:", filtered if filtered else ["No match"])
 
-    if filtered and st.button("🚀 Recommend Movies"):
-        with st.spinner("✨ Generating awesome recommendations..."):
+    if filtered and st.button("Recommend Movies"):
+        with st.spinner("Generating awesome recommendations..."):
             recommendations: dict = recommend(movie_name, df, similarity)
             st.write("")
-            st.markdown("### 🔥 Your Recommendations:")
+            st.markdown("Your Recommendations:")
             st.write("")
 
             cols: list[DeltaGenerator] = st.columns(len(recommendations))

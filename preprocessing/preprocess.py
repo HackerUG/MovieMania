@@ -1,53 +1,88 @@
 import ast
 import pandas as pd
 
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    movies: pd.DataFrame = pd.read_csv("data/tmdb_5000_movies.csv")
-    credits: pd.DataFrame = pd.read_csv("data/tmdb_5000_credits.csv",)
-    return movies, credits
+
+def load_data(
+    movies_path: str = "data/tmdb_5000_movies.csv",
+    credits_path: str = "data/tmdb_5000_credits.csv"
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Loads movie and credits datasets."""
+    try:
+        movies = pd.read_csv(movies_path)
+        credits = pd.read_csv(credits_path)
+        return movies, credits
+    except FileNotFoundError:
+        raise FileNotFoundError("Movie or Credits CSV file not found. Check file paths.")
+
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
-    df.dropna(inplace=True)
-    df.drop_duplicates(inplace=True)
+    """Removes missing and duplicate entries."""
+    df = df.dropna().drop_duplicates()
     return df
+
+def safe_eval(x):
+    """Safely evaluate stringified lists like '[{"id": 1, "name": "Action"}]'."""
+    try:
+        return ast.literal_eval(x)
+    except Exception:
+        return []
+
+def deduplicate_rows(objs, max_items: int = None) -> list:
+    """Extracts unique lowercase names and characters from JSON-like list strings."""
+    result = []
+    for obj in safe_eval(objs):
+        if isinstance(obj, dict):
+            if "name" in obj:
+                result.append(obj["name"].replace(" ", "").lower())
+            if "character" in obj:
+                result.append(obj["character"].replace(" ", "").lower())
+    result = list(set(result))
+    return result[:max_items] if max_items else result
 
 def format_and_merge(movies: pd.DataFrame, credits: pd.DataFrame) -> pd.DataFrame:
-    movies=movies[["id", "genres", "keywords", "overview", "title"]]
-    df: pd.DataFrame = movies.merge(credits, left_on=["id", "title"], right_on=["movie_id", "title"])
-    df.drop(columns=["id"], inplace=True)
-    df.genres=df.genres.apply(deduplicate_rows)
-    df.cast=df.cast.apply(deduplicate_rows, max=5)
-    df.crew=df.crew.apply(lambda crews: [crew["name"].replace(" ", "").lower() for crew in ast.literal_eval(crews) if crew['job'].lower() in ["screenplay", "director", "producer"]])
-    df.keywords=df.keywords.apply(deduplicate_rows)
-    df.overview=df.overview.apply(lambda overview: overview.lower().split())
-    df["tags"]=df["overview"]+df["genres"]+df["cast"]+df["crew"]+df["keywords"]
-    df=df[["movie_id", "title", "tags"]]
     """
-    <python-input-161>:1: SettingWithCopyWarning:
-    A value is trying to be set on a copy of a slice from a DataFrame.
-    Try using .loc[row_indexer,col_indexer] = value instead
+    Cleans, merges, and constructs a 'tags' column for each movie
+    containing all descriptive tokens.
+    """
+    # Select relevant columns
+    movies = movies[["id", "genres", "keywords", "overview", "title"]]
+    credits = credits[["movie_id", "title", "cast", "crew"]]
 
-    See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
-    """
-    df.tags=df.tags.apply(lambda x: " ".join(x))
+    # Merge datasets on movie ID and title
+    df = movies.merge(credits, left_on=["id", "title"], right_on=["movie_id", "title"], how="inner")
+    df.drop(columns=["id"], inplace=True)
+
+    # Parse and extract info
+    df["genres"] = df["genres"].apply(deduplicate_rows)
+    df["keywords"] = df["keywords"].apply(deduplicate_rows)
+    df["cast"] = df["cast"].apply(lambda x: deduplicate_rows(x, max_items=5))
+    df["crew"] = df["crew"].apply(
+        lambda crews: [
+            crew["name"].replace(" ", "").lower()
+            for crew in safe_eval(crews)
+            if isinstance(crew, dict)
+            and crew.get("job", "").lower() in ["screenplay", "director", "producer"]
+        ]
+    )
+
+    # Process overview
+    df["overview"] = df["overview"].apply(lambda x: str(x).lower().split())
+    df["tags"] = df["overview"] + df["genres"] + df["cast"] + df["crew"] + df["keywords"]
+    df["tags"] = df["tags"].apply(lambda x: " ".join(x))
+    df = df[["movie_id", "title", "tags"]]
     return df
 
-def deduplicate_rows(objs, max: int = None) -> list:
-    result=[]
-    for obj in ast.literal_eval(objs):
-        result.append(obj["name"].replace(" ", "").lower())
-        if "character" in obj.keys():
-            result.append(obj["character"].replace(" ", "").lower())
-    return list(set(result))[:max] if max else list(set(result))
 
-def save_processed(df, path="data/processed_tmdb.pkl"):
+def save_processed(df: pd.DataFrame, path: str = "data/processed_tmdb.pkl"):
+    """Saves the processed dataset as a pickle file."""
     df.to_pickle(path)
+    print(f"Preprocessing complete. Saved to {path}")
 
 
 if __name__ == "__main__":
+    print("Starting TMDB Preprocessing...")
     movies, credits = load_data()
     movies = clean(movies)
     credits = clean(credits)
     df = format_and_merge(movies, credits)
     save_processed(df)
-    print("Preprocessing complete. Saved to data/processed_tmdb.pkl")
